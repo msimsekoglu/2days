@@ -2177,9 +2177,12 @@
             const reward = document.getElementById('rewardInput').value.trim();
             
             if (!startDate || !habit || !reward) {
+                playSound('error');
                 alert('Lütfen tüm alanları doldurun!');
                 return;
             }
+            
+            playSound('joker-earned'); // Başarılı quest başlatma sesi
             
             // Create new quest
             const questId = generateQuestId();
@@ -2420,6 +2423,19 @@
             }
             
             day.status = status;
+            
+            // Ses efektleri
+            if (status === 'completed') {
+                console.log('🔊 Playing complete sound');
+                playSound('complete');
+            } else if (status === 'empty') {
+                console.log('🔊 Playing empty sound');
+                playSound('empty');
+            } else if (status === 'joker') {
+                console.log('🔊 Playing joker sound');
+                playSound('joker');
+            }
+            
             closeBottomSheet();
             
             recalculateStreak();
@@ -2536,6 +2552,8 @@
             
             console.log('Checking for two empty days, today:', today);
             
+            // Tüm boş gün çiftlerini bul
+            const emptyPairs = [];
             for (let i = 1; i < gameState.days.length; i++) {
                 const prevDay = gameState.days[i - 1];
                 const currDay = gameState.days[i];
@@ -2543,53 +2561,71 @@
                 if (currDay.date > today) break;
                 
                 if (prevDay.status === 'empty' && currDay.status === 'empty') {
-                    console.log('Found two empty days:', prevDay.date, currDay.date);
-                    
-                    if (gameState.pendingTwoEmptyDays === currDay.date) {
-                        console.log('Already handled this pair');
-                        continue;
-                    }
-                    
-                    gameState.pendingTwoEmptyDays = currDay.date;
-                    
-                    // Eğer 7G daha önce kullanıldıysa ve joker yoksa → GAME OVER
-                    if (gameState.sevenGUsed && gameState.jokerCount === 0) {
-                        console.log('7G already used and no joker - GAME OVER');
-                        gameOver('İki gün üst üste boş geçtiniz. 7G Görevi daha önce kullanıldı ve jokeriniz yok. Quest başarısız!');
-                        return;
-                    }
-                    
-                    if (i >= 2 && gameState.days[i - 2].status === 'joker') {
-                        console.log('Joker used 2 days ago, starting 7G directly');
-                        start7GDirect();
-                        return;
-                    }
-                    
-                    if (gameState.jokerCount > 0) {
-                        console.log('Showing joker modal, joker count:', gameState.jokerCount);
-                        document.getElementById('modalJokerCount').textContent = gameState.jokerCount;
-                        
-                        // Eğer 7G daha önce kullanıldıysa, modalda sadece joker seçeneği olmalı
-                        if (gameState.sevenGUsed) {
-                            // Modal mesajını güncelle
-                            document.querySelector('#jokerModal h2').textContent = '⚠️ İki Boş Gün!';
-                            document.querySelector('#jokerModal p').innerHTML = 'İki gün üst üste boş geçtiniz. 7G Görevi daha önce kullanıldı.<br><strong>Joker kullanmalısınız, yoksa quest başarısız olur!</strong>';
-                            // "7G Görevine Başla" butonunu gizle
-                            document.querySelector('.modal-btn-no').style.display = 'none';
-                        } else {
-                            // Normal modal
-                            document.querySelector('#jokerModal h2').textContent = '🃏 Joker Kullanmak İster Misiniz?';
-                            document.querySelector('#jokerModal p').innerHTML = 'İki gün üst üste quest tamamlanmadı. Bir joker kullanarak devam edebilir veya 7G Kurtarma Görevi\'ne başlayabilirsiniz.<br><br><strong style="color: #ffd700;">Mevcut Joker: <span id="modalJokerCount">' + gameState.jokerCount + '</span></strong>';
-                            document.querySelector('.modal-btn-no').style.display = 'inline-block';
-                        }
-                        
-                        document.getElementById('jokerModal').classList.add('active');
-                    } else {
-                        console.log('No joker available, starting 7G directly');
-                        start7GDirect();
-                    }
+                    emptyPairs.push({prev: prevDay.date, curr: currDay.date, index: i});
+                }
+            }
+            
+            // Henüz işlenmemiş son çifti bul
+            for (let pair of emptyPairs) {
+                console.log('Found two empty days:', pair.prev, pair.curr);
+                
+                // Bu çift daha önce işlendi mi?
+                const alreadyHandled = gameState.handledEmptyPairs && 
+                                      gameState.handledEmptyPairs.includes(pair.curr);
+                
+                if (alreadyHandled) {
+                    console.log('Already handled this pair');
+                    continue;
+                }
+                
+                // Bu çifti işlenmiş olarak işaretle
+                if (!gameState.handledEmptyPairs) {
+                    gameState.handledEmptyPairs = [];
+                }
+                gameState.handledEmptyPairs.push(pair.curr);
+                saveGame();
+                
+                const i = pair.index;
+                
+                console.log('Processing pair at index:', i, 'Joker count:', gameState.jokerCount, '7G used:', gameState.sevenGUsed);
+                
+                // Eğer 7G daha önce kullanıldıysa ve joker yoksa → GAME OVER
+                if (gameState.sevenGUsed && gameState.jokerCount === 0) {
+                    console.log('7G already used and no joker - GAME OVER');
+                    gameOver('İki gün üst üste boş geçtiniz. 7G Görevi daha önce kullanıldı ve jokeriniz yok. Quest başarısız!');
                     return;
                 }
+                
+                if (i >= 2 && gameState.days[i - 2].status === 'joker') {
+                    console.log('Joker used 2 days ago, starting 7G directly');
+                    start7GDirect();
+                    return;
+                }
+                
+                if (gameState.jokerCount > 0) {
+                    console.log('Showing joker modal, joker count:', gameState.jokerCount);
+                    document.getElementById('modalJokerCount').textContent = gameState.jokerCount;
+                    
+                    // Eğer 7G daha önce kullanıldıysa, modalda sadece joker seçeneği olmalı
+                    if (gameState.sevenGUsed) {
+                        // Modal mesajını güncelle
+                        document.querySelector('#jokerModal h2').textContent = '⚠️ İki Boş Gün!';
+                        document.querySelector('#jokerModal p').innerHTML = 'İki gün üst üste boş geçtiniz. 7G Görevi daha önce kullanıldı.<br><strong>Joker kullanmalısınız, yoksa quest başarısız olur!</strong>';
+                        // "7G Görevine Başla" butonunu gizle
+                        document.querySelector('.modal-btn-no').style.display = 'none';
+                    } else {
+                        // Normal modal
+                        document.querySelector('#jokerModal h2').textContent = '🃏 Joker Kullanmak İster Misiniz?';
+                        document.querySelector('#jokerModal p').innerHTML = 'İki gün üst üste quest tamamlanmadı. Bir joker kullanarak devam edebilir veya 7G Kurtarma Görevi\'ne başlayabilirsiniz.<br><br><strong style="color: #ffd700;">Mevcut Joker: <span id="modalJokerCount">' + gameState.jokerCount + '</span></strong>';
+                        document.querySelector('.modal-btn-no').style.display = 'inline-block';
+                    }
+                    
+                    document.getElementById('jokerModal').classList.add('active');
+                } else {
+                    console.log('No joker available, starting 7G directly');
+                    start7GDirect();
+                }
+                return;
             }
         }
 
@@ -2601,6 +2637,11 @@
                 if (gameState.days[i].date > today) break;
                 
                 if (gameState.days[i - 1].status === 'empty' && gameState.days[i].status === 'empty') {
+                    // Joker sesini çal
+                    console.log('🔊 Playing joker sound (from modal)');
+                    playSound('joker');
+                    
+                    // İlk boş günü joker yap
                     gameState.days[i - 1].status = 'joker';
                     gameState.jokerCount--;
                     break;
@@ -2613,6 +2654,7 @@
         }
 
         function start7G() {
+            playSound('modal-open'); // 7G başlatma sesi
             document.getElementById('jokerModal').classList.remove('active');
             start7GDirect();
         }
@@ -2727,6 +2769,7 @@
                 gameState.sevenGActive = false;
                 gameState.sevenGProgress = 0;
                 console.log('🎉 7G COMPLETED!');
+                playSound('7g-complete');
                 // Başarı mesajı göster (alert yerine daha güzel bir şey yapabiliriz)
             }
         }
@@ -2772,6 +2815,7 @@
                     gameState.streakRewards.push(rewardDay);
                     
                     console.log('REWARD GIVEN! New joker count:', gameState.jokerCount, '- Streak will reset on next recalculate');
+                    playSound('joker-earned');
                     
                     // KUTLAMA BAŞLAT!
                     showCelebration(todayIndex);
@@ -2814,9 +2858,10 @@
         }
 
         function createConfetti() {
-            const colors = ['#ffd700', '#00ff88', '#00ffff', '#ff1493', '#ba55d3'];
-            const confettiCount = 100;
+            const colors = ['#ffd700', '#00ff88', '#00ffff', '#ff1493', '#ba55d3', '#ff6b6b', '#4ecdc4'];
+            const confettiCount = 200; // Daha fazla konfeti!
             
+            // İlk patlama
             for (let i = 0; i < confettiCount; i++) {
                 setTimeout(() => {
                     const confetti = document.createElement('div');
@@ -2825,15 +2870,32 @@
                     confetti.style.top = '-10px';
                     confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
                     confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
-                    confetti.style.animationDelay = Math.random() * 0.5 + 's';
+                    confetti.style.animationDelay = Math.random() * 0.3 + 's';
                     confetti.style.animationDuration = (Math.random() * 2 + 2) + 's';
                     
                     document.body.appendChild(confetti);
                     
-                    // Konfeti animasyon bitince temizle
-                    setTimeout(() => confetti.remove(), 5000);
-                }, i * 10);
+                    setTimeout(() => confetti.remove(), 6000);
+                }, i * 5); // Daha hızlı patlama
             }
+            
+            // İkinci dalga (1 saniye sonra)
+            setTimeout(() => {
+                for (let i = 0; i < 100; i++) {
+                    setTimeout(() => {
+                        const confetti = document.createElement('div');
+                        confetti.className = 'confetti';
+                        confetti.style.left = Math.random() * 100 + 'vw';
+                        confetti.style.top = '-10px';
+                        confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+                        confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+                        confetti.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                        
+                        document.body.appendChild(confetti);
+                        setTimeout(() => confetti.remove(), 6000);
+                    }, i * 10);
+                }
+            }, 1000);
         }
 
         function checkGameCompletion() {
@@ -2869,9 +2931,13 @@
             
             console.log('Game completion check:', completedDays, '/', totalDays, 'All completed:', allCompleted);
             
-            // Eğer tüm günler tamamlandıysa (son güne kadar)
-            if (allCompleted && totalDays === gameState.days.length) {
-                console.log('🎉 QUEST COMPLETED!');
+            // Tüm 49 gün doldu mu? (pending olmayan)
+            const allDaysFilled = gameState.days.every(day => day.status !== 'pending');
+            const totalQuestDays = gameState.days.length; // 49
+            
+            // BAŞARI: Tüm günler doluysa VE quest başarısızlıkla bitmediyse
+            if (allDaysFilled && gameState.gameStatus !== 'failed') {
+                console.log('🎊 ALL 49 DAYS FILLED! Quest complete!');
                 gameState.gameStatus = 'success';
                 saveGame();
                 showSuccessOverlay();
@@ -2904,25 +2970,49 @@
             gameState.gameStatus = 'success';
             saveGame();
             
-            // Konfeti!
+            // KONFETI PATLAT!
             createConfetti();
             
-            const totalDays = gameState.days.length;
-            const message = `${totalDays} günlük macerayı tamamladınız!\n\n🏆 ${gameState.bigReward}`;
+            // BAŞARI SESİ!
+            playSound('success');
             
-            document.getElementById('overlayTitle').textContent = '🎉 QUEST TAMAMLANDI!';
-            document.getElementById('overlayMessage').textContent = message;
+            const totalDays = gameState.days.length;
+            const completedCount = gameState.days.filter(d => d.status === 'completed' || d.status === 'seven-g').length;
+            const emptyCount = gameState.days.filter(d => d.status === 'empty').length;
+            const jokerCount = gameState.days.filter(d => d.status === 'joker').length;
+            
+            const message = `🎊 TEBRİKLER! 🎊
+
+${totalDays} günlük macerayı başarıyla tamamladın!
+
+📊 İstatistikler:
+✅ Tamamlanan: ${completedCount} gün
+🃏 Joker Kullanımı: ${jokerCount}
+⚠️ Boş Günler: ${emptyCount}
+
+🏆 ÖDÜLÜN: ${gameState.bigReward}
+
+"Disiplin kazandı. Sen kazandın!"`;
+            
+            document.getElementById('overlayTitle').innerHTML = `
+                <div style="font-size: 2.5em; animation: bounce 1s infinite;">🎉</div>
+                <div>QUEST TAMAMLANDI!</div>
+                <div style="font-size: 2.5em; animation: bounce 1s 0.2s infinite;">🎉</div>
+            `;
+            document.getElementById('overlayMessage').innerHTML = message.replace(/\n/g, '<br>');
             document.getElementById('overlayContent').className = 'overlay-content success';
             document.getElementById('gameOverlay').classList.add('active');
             
-            console.log('🎉 SUCCESS OVERLAY SHOWN with confetti!');
+            console.log('🎉🎊🎉 SUCCESS OVERLAY SHOWN with MEGA CONFETTI!');
         }
 
         function closeOverlay() {
+            playSound('click');
             document.getElementById('gameOverlay').classList.remove('active');
         }
 
         function closeOverlayWithAutoArchive() {
+            playSound('click');
             // Otomatik arşivle
             if (multiQuestData.currentQuestId && (gameState.gameStatus === 'failed' || gameState.gameStatus === 'success')) {
                 const completionRate = calculateCompletionRate();
@@ -3041,6 +3131,7 @@
         }
 
         function showArchive() {
+            playSound('click');
             document.getElementById('dashboardScreen').style.display = 'none';
             document.getElementById('setupScreen').style.display = 'none';
             document.getElementById('gameScreen').style.display = 'none';
@@ -3182,6 +3273,7 @@
         }
 
         function showDashboard() {
+            playSound('click');
             // Hide all screens
             document.getElementById('dashboardScreen').style.display = 'block';
             document.getElementById('setupScreen').style.display = 'none';
@@ -3239,6 +3331,7 @@
         let pendingDeleteQuestId = null;
 
         function handleDeleteQuest(questId) {
+            playSound('click');
             const quest = multiQuestData.activeQuests.find(q => q.id === questId);
             if (!quest) return;
             
@@ -3251,6 +3344,8 @@
 
         function confirmDeleteQuest() {
             if (!pendingDeleteQuestId) return;
+            
+            playSound('reset'); // Silme sesi
             
             // Arşiv silme mi?
             if (pendingDeleteQuestId.startsWith('archive-')) {
@@ -3276,6 +3371,7 @@
         }
 
         function closeConfirmModal() {
+            playSound('click');
             document.getElementById('confirmModal').classList.remove('active');
             pendingDeleteQuestId = null;
         }
@@ -3347,6 +3443,7 @@
         }
 
         function showNewQuestSetup() {
+            playSound('click');
             document.getElementById('dashboardScreen').style.display = 'none';
             document.getElementById('setupScreen').style.display = 'block';
             document.getElementById('backButton').classList.add('active');
@@ -3354,6 +3451,7 @@
         }
 
         function openQuest(questId) {
+            playSound('click');
             // Load quest data into gameState
             const quest = multiQuestData.activeQuests.find(q => q.id === questId);
             if (!quest) return;
@@ -3377,6 +3475,7 @@
         }
 
         function goToDashboard() {
+            playSound('click');
             // Save current quest before going back
             if (multiQuestData.currentQuestId) {
                 saveCurrentQuest();
@@ -3408,6 +3507,7 @@
 
         // Info Modal Functions
         function openRulesModal() {
+            playSound('modal-open');
             const content = `
                 <h2>📋 Nasıl Çalışır?</h2>
                 <p style="margin-bottom: 15px; color: #00ff88; font-weight: 600; font-size: 1.1em;">49 günlük alışkanlık yolculuğunu başlat, zinciri koru!</p>
@@ -3437,6 +3537,7 @@
         }
 
         function openMotivationModal() {
+            playSound('modal-open');
             const content = `
                 <h2>💪 Motivasyon</h2>
                 <p style="margin-bottom: 20px; line-height: 1.8; color: #e0e0e0; font-size: 1.05em;">
@@ -3460,10 +3561,12 @@
         }
 
         function closeInfoModal() {
+            playSound('click');
             document.getElementById('infoModal').classList.remove('active');
         }
 
         function openAboutModal() {
+            playSound('modal-open');
             const content = `
                 <div class="about-content">
                     <h2>ℹ️ Hakkında</h2>
@@ -3484,6 +3587,14 @@
                     <div style="margin-top: 30px; color: #a0a0a0; font-style: italic; line-height: 1.6;">
                         "Disiplin + Esneklik = Kalıcı Alışkanlık"<br>
                         <span style="font-size: 0.9em;">Miss once, never twice</span>
+                    </div>
+                    
+                    <div class="data-management">
+                        <h3 style="color: #00ff88; margin-bottom: 15px;">🔊 Ses Efektleri</h3>
+                        <p style="color: #a0a0a0; font-size: 0.95em; margin-bottom: 15px;">Uygulama seslerini aç/kapat</p>
+                        <button id="soundToggleBtn" onclick="toggleSoundUI()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 200, 100, 0.1)); border: 2px solid #00ff88; border-radius: 8px; color: #00ff88; font-weight: 600; cursor: pointer; transition: all 0.3s;">
+                            🔊 Sesler: AÇIK
+                        </button>
                     </div>
                     
                     <div class="data-management">
@@ -3510,6 +3621,14 @@
             `;
             document.getElementById('infoModalContent').innerHTML = content;
             document.getElementById('infoModal').classList.add('active');
+            
+            // Ses butonunu güncelle
+            const soundBtn = document.getElementById('soundToggleBtn');
+            if (soundBtn) {
+                soundBtn.textContent = soundEnabled ? '🔊 Sesler: AÇIK' : '🔇 Sesler: KAPALI';
+                soundBtn.style.borderColor = soundEnabled ? '#00ff88' : '#888';
+                soundBtn.style.color = soundEnabled ? '#00ff88' : '#888';
+            }
         }
 
         function toggleTestModeWithPassword() {
@@ -3520,6 +3639,8 @@
             if (password === correctPassword) {
                 debugMode = !debugMode;
                 localStorage.setItem('debugMode', debugMode);
+                
+                playSound('test-mode'); // Test modu sesi
                 
                 if (debugMode) {
                     statusDiv.innerHTML = '✅ Test Modu Aktif<br><button onclick="resetAllDays()" style="margin-top: 15px; padding: 10px 25px; background: linear-gradient(135deg, #ff4444, #cc0000); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;">🔄 Tüm Günleri Sıfırla</button>';
@@ -3544,6 +3665,8 @@
         function resetAllDays() {
             if (!debugMode) return;
             
+            playSound('reset'); // Sıfırlama sesi
+            
             console.log('Resetting all days...');
             for (let d of gameState.days) {
                 d.status = 'pending';
@@ -3555,6 +3678,7 @@
             gameState.sevenGStartDate = null;
             gameState.jokerCount = 1;
             gameState.streakRewards = [];
+            gameState.handledEmptyPairs = []; // Yeni sistem
             
             saveGame();
             renderGame();
@@ -3628,6 +3752,227 @@
             
             // Reset file input
             event.target.value = '';
+        }
+
+        // Sound Effects System (Web Audio API - No files needed!)
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let soundEnabled = localStorage.getItem('soundEnabled') !== 'false'; // Varsayılan: açık
+
+        function playSound(type) {
+            if (!soundEnabled) {
+                console.log('🔇 Sound disabled');
+                return;
+            }
+            
+            // AudioContext'i resume et (tarayıcı politikası için)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    console.log('🔊 AudioContext resumed');
+                });
+            }
+            
+            console.log('🔊 Playing sound:', type);
+            
+            const now = audioContext.currentTime;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            switch(type) {
+                case 'complete': // ✅ Gün tamamlandı
+                    oscillator.frequency.setValueAtTime(523.25, now); // C5
+                    oscillator.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                    oscillator.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                    gainNode.gain.setValueAtTime(0.3, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                    break;
+                    
+                case 'empty': // ⚠️ Boş geçildi
+                    oscillator.frequency.setValueAtTime(400, now);
+                    oscillator.frequency.setValueAtTime(200, now + 0.2);
+                    oscillator.type = 'sawtooth';
+                    gainNode.gain.setValueAtTime(0.2, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                    break;
+                    
+                case 'joker': // 🃏 Joker kullanıldı
+                    // Sihirli joker sesi - whoosh efekti
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(880, now); // Yüksekten başla
+                    oscillator.frequency.exponentialRampToValueAtTime(220, now + 0.4); // Aşağı in
+                    gainNode.gain.setValueAtTime(0.3, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.4);
+                    
+                    // İkinci katman: Parlama sesi (eşzamanlı)
+                    setTimeout(() => {
+                        const shimmer = audioContext.createOscillator();
+                        const shimmerGain = audioContext.createGain();
+                        shimmer.connect(shimmerGain);
+                        shimmerGain.connect(audioContext.destination);
+                        shimmer.type = 'triangle';
+                        const shimmerNow = audioContext.currentTime;
+                        shimmer.frequency.setValueAtTime(1760, shimmerNow);
+                        shimmer.frequency.exponentialRampToValueAtTime(440, shimmerNow + 0.3);
+                        shimmerGain.gain.setValueAtTime(0.15, shimmerNow);
+                        shimmerGain.gain.exponentialRampToValueAtTime(0.01, shimmerNow + 0.3);
+                        shimmer.start(shimmerNow);
+                        shimmer.stop(shimmerNow + 0.3);
+                    }, 0);
+                    break;
+                    
+                case 'joker-earned': // 🎁 Joker kazanıldı!
+                    // Yükselen arpeggio + parlak tınılar
+                    const jokerNotes = [523.25, 659.25, 783.99, 1046.50, 1318.51]; // C-E-G-C-E (yüksek)
+                    for (let i = 0; i < 5; i++) {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(jokerNotes[i], now + i * 0.12);
+                        gain.gain.setValueAtTime(0.25, now + i * 0.12);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.12 + 0.3);
+                        osc.start(now + i * 0.12);
+                        osc.stop(now + i * 0.12 + 0.3);
+                    }
+                    // Çan sesi efekti
+                    setTimeout(() => {
+                        const bell = audioContext.createOscillator();
+                        const bellGain = audioContext.createGain();
+                        bell.connect(bellGain);
+                        bellGain.connect(audioContext.destination);
+                        bell.frequency.setValueAtTime(1046.50, audioContext.currentTime);
+                        bellGain.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        bellGain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
+                        bell.start(audioContext.currentTime);
+                        bell.stop(audioContext.currentTime + 0.8);
+                    }, 600);
+                    break;
+                    
+                case 'success': // 🎉 Quest tamamlandı!
+                    // Alkış simülasyonu (noise burst)
+                    const bufferSize = audioContext.sampleRate * 2;
+                    const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = Math.random() * 2 - 1;
+                    }
+                    const noise = audioContext.createBufferSource();
+                    noise.buffer = buffer;
+                    const noiseGain = audioContext.createGain();
+                    noise.connect(noiseGain);
+                    noiseGain.connect(audioContext.destination);
+                    noiseGain.gain.setValueAtTime(0.1, now);
+                    noiseGain.gain.exponentialRampToValueAtTime(0.3, now + 0.5);
+                    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 2);
+                    noise.start(now);
+                    noise.stop(now + 2);
+                    
+                    // Muzaffer fanfar
+                    const notes = [523.25, 659.25, 783.99, 1046.50]; // C-E-G-C
+                    notes.forEach((freq, i) => {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        osc.frequency.setValueAtTime(freq, now + i * 0.2);
+                        gain.gain.setValueAtTime(0.3, now + i * 0.2);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.4);
+                        osc.start(now + i * 0.2);
+                        osc.stop(now + i * 0.2 + 0.4);
+                    });
+                    break;
+                    
+                case '7g-complete': // 🔥 7G tamamlandı
+                    oscillator.type = 'square';
+                    for (let i = 0; i < 7; i++) {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        osc.frequency.setValueAtTime(800 + i * 50, now + i * 0.08);
+                        osc.type = 'square';
+                        gain.gain.setValueAtTime(0.15, now + i * 0.08);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.1);
+                        osc.start(now + i * 0.08);
+                        osc.stop(now + i * 0.08 + 0.1);
+                    }
+                    break;
+                    
+                case 'click': // 🖱️ Buton tıklama
+                    oscillator.frequency.setValueAtTime(800, now);
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.05);
+                    break;
+                    
+                case 'modal-open': // 📂 Modal açıldı
+                    oscillator.frequency.setValueAtTime(400, now);
+                    oscillator.frequency.setValueAtTime(600, now + 0.1);
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.15, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.2);
+                    break;
+                    
+                case 'test-mode': // 🔧 Test modu aktif
+                    oscillator.type = 'sawtooth';
+                    oscillator.frequency.setValueAtTime(220, now);
+                    oscillator.frequency.setValueAtTime(440, now + 0.15);
+                    gainNode.gain.setValueAtTime(0.2, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                    break;
+                    
+                case 'reset': // 🔄 Sıfırlama
+                    oscillator.type = 'triangle';
+                    oscillator.frequency.setValueAtTime(600, now);
+                    oscillator.frequency.setValueAtTime(300, now + 0.3);
+                    gainNode.gain.setValueAtTime(0.15, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.4);
+                    break;
+                    
+                case 'error': // ❌ Hata
+                    oscillator.type = 'square';
+                    oscillator.frequency.setValueAtTime(200, now);
+                    oscillator.frequency.setValueAtTime(150, now + 0.1);
+                    gainNode.gain.setValueAtTime(0.2, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.2);
+                    break;
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            localStorage.setItem('soundEnabled', soundEnabled);
+            playSound('click');
+            return soundEnabled;
+        }
+
+        function toggleSoundUI() {
+            const enabled = toggleSound();
+            const btn = document.getElementById('soundToggleBtn');
+            if (btn) {
+                btn.textContent = enabled ? '🔊 Sesler: AÇIK' : '🔇 Sesler: KAPALI';
+                btn.style.borderColor = enabled ? '#00ff88' : '#888';
+                btn.style.color = enabled ? '#00ff88' : '#888';
+            }
         }
 
         function loadGame() {
