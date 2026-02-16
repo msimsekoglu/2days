@@ -2813,15 +2813,31 @@
             
             playSound('joker-earned'); // Başarılı quest başlatma sesi
             
-            // Create new quest
+            // Create new quest ID
             const questId = generateQuestId();
             
-            gameState.id = questId;
-            gameState.habitGoal = habit;
-            gameState.bigReward = reward;
-            gameState.startDate = startDate;
-            gameState.createdAt = new Date().toISOString();
-            gameState.lastUpdated = new Date().toISOString();
+            // TAMAMEN YENİ gameState (eski 7G state'i temizlenir)
+            gameState = {
+                id: questId,
+                habitGoal: habit,
+                bigReward: reward,
+                startDate: startDate,
+                endDate: null,
+                createdAt: new Date().toISOString(),
+                lastUpdated: new Date().toISOString(),
+                days: [],
+                jokerCount: 1,
+                currentStreak: 0,
+                sevenGActive: false,
+                sevenGProgress: 0,
+                sevenGStartDate: null,
+                sevenGUsed: false,
+                lastJokerDay: null,
+                streakRewards: [],
+                handledEmptyPairs: [],
+                gameStatus: 'active',
+                pendingTwoEmptyDays: null
+            };
             
             const start = new Date(startDate);
             const end = new Date(start);
@@ -4073,10 +4089,19 @@ ${totalDays} günlük macerayı başarıyla tamamladın!
 
         function showNewQuestSetup() {
             playSound('click');
+            
+            // Form alanlarını temizle (doğru ID'ler)
+            const habitInput = document.getElementById('habitInput');
+            const rewardInput = document.getElementById('rewardInput');
+            const startDateInput = document.getElementById('startDateInput');
+            
+            if (habitInput) habitInput.value = '';
+            if (rewardInput) rewardInput.value = '';
+            if (startDateInput) startDateInput.value = new Date().toISOString().split('T')[0];
+            
             document.getElementById('dashboardScreen').style.display = 'none';
             document.getElementById('setupScreen').style.display = 'block';
             document.getElementById('backButton').classList.add('active');
-            document.getElementById('startDateInput').value = new Date().toISOString().split('T')[0];
         }
 
         function openQuest(questId) {
@@ -4448,7 +4473,7 @@ ${totalDays} günlük macerayı başarıyla tamamladın!
                         </div>
                         <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
                             <input type="time" id="notificationTime" value="20:00" style="flex: 1; min-width: 120px; padding: 10px; background: rgba(26, 26, 46, 0.9); border: 2px solid #ff9500; border-radius: 8px; color: #e0e0e0; font-size: 1em;">
-                            <button onclick="enableNotifications()" style="flex: 1; min-width: 120px; padding: 10px; background: linear-gradient(135deg, rgba(255, 149, 0, 0.2), rgba(255, 100, 0, 0.1)); border: 2px solid #ff9500; border-radius: 8px; color: #ff9500; font-weight: 600; cursor: pointer;">
+                            <button id="notificationToggleBtn" onclick="toggleNotifications()" style="flex: 1; min-width: 120px; padding: 10px; background: linear-gradient(135deg, rgba(255, 149, 0, 0.2), rgba(255, 100, 0, 0.1)); border: 2px solid #ff9500; border-radius: 8px; color: #ff9500; font-weight: 600; cursor: pointer;">
                                 🔔 Aktifleştir
                             </button>
                         </div>
@@ -4846,6 +4871,7 @@ ${totalDays} günlük macerayı başarıyla tamamladın!
 
         function updateNotificationStatus() {
             const statusText = document.getElementById('notificationStatusText');
+            const toggleBtn = document.getElementById('notificationToggleBtn');
             if (!statusText) return;
             
             const enabled = localStorage.getItem('notificationsEnabled') === 'true';
@@ -4854,19 +4880,51 @@ ${totalDays} günlük macerayı başarıyla tamamladın!
             if (!checkNotificationSupport()) {
                 statusText.innerHTML = '❌ Tarayıcı desteklemiyor';
                 statusText.style.color = '#ff4444';
+                if (toggleBtn) toggleBtn.disabled = true;
                 return;
             }
             
             if (Notification.permission === 'denied') {
                 statusText.innerHTML = '🚫 İzin reddedildi (Tarayıcı ayarlarından aktifleştirin)';
                 statusText.style.color = '#ff4444';
+                if (toggleBtn) {
+                    toggleBtn.textContent = '🔔 Aktifleştir';
+                    toggleBtn.disabled = true;
+                }
             } else if (Notification.permission === 'granted' && enabled) {
                 statusText.innerHTML = `✅ Aktif - Her gün saat ${time}`;
                 statusText.style.color = '#00ff88';
+                if (toggleBtn) {
+                    toggleBtn.textContent = '🔕 Kapat';
+                    toggleBtn.disabled = false;
+                }
             } else {
                 statusText.innerHTML = '📴 Bildirimler kapalı';
                 statusText.style.color = '#a0a0a0';
+                if (toggleBtn) {
+                    toggleBtn.textContent = '🔔 Aktifleştir';
+                    toggleBtn.disabled = false;
+                }
             }
+        }
+
+        function toggleNotifications() {
+            const enabled = localStorage.getItem('notificationsEnabled') === 'true';
+            
+            if (enabled) {
+                // Kapat
+                disableNotifications();
+            } else {
+                // Aktifleştir
+                enableNotifications();
+            }
+        }
+
+        function disableNotifications() {
+            playSound('click');
+            localStorage.setItem('notificationsEnabled', 'false');
+            updateNotificationStatus();
+            showInfoMessage('🔕 Bildirimler kapatıldı');
         }
 
         async function enableNotifications() {
